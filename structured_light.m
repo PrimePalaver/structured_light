@@ -1,13 +1,19 @@
 function structured_light()
     % For x angles, facing the wall is pi/2
     % For y angles, flat is 0
-    angle_rig_camera_x = 75 *(pi/180);
-    angle_rig_camera_y = 0 *(pi/180);
-    angle_rig_projector_x = 90 *(pi/180);
-    angle_rig_projector_y = 15 *(pi/180);
+    angle_rig_camera_x = 80 *(pi/180);
+    angle_rig_camera_y = 15 *(pi/180);
+    angle_rig_projector_x = 105 *(pi/180);
+    angle_rig_projector_y = 0 *(pi/180);
     position_camera_projector_x = -.3;
     position_camera_projector_y = 0;
-    position_camera_projector_z = .3;
+    position_camera_projector_z = 0;
+
+    % Wall scan parameters
+    % angle_rig_camera_x = 50 *(pi/180);
+    % angle_rig_camera_y = 0 *(pi/180);
+    % angle_rig_projector_x = 90 *(pi/180);
+    % position_camera_projector_z = .3;
 
     fov_camera_x = 64 *(pi/180);
     fov_camera_y = 40 *(pi/180);
@@ -27,15 +33,20 @@ function structured_light()
     focal_length_projector_x = (res_projector_x/2)/(tan(fov_projector_x/2));
     focal_length_projector_y = (res_projector_y/2)/(tan(fov_projector_y/2));
 
-    photo = rgb2gray(imread('photos/gradient_horizontal_500_10.png'));
+    photo = rgb2gray(imread('photos/box1.png'));
     pattern = imread('patterns/gradient_horizontal_500_10.png');
-
-    function point = get_intersection(ang_proj_x, ang_cam_x, ang_cam_y,
+    
+    function point = get_intersection(ang_proj_x, ang_cam_x, ang_cam_y, ...
                                       verbose)
         % Input: (pixel x angle relative to projector, pixel x angle
         % relative to the camera, pixel y angle relative to the camera,
         % optional verbose boolean)
         % Output: pixel 3D location relative to the projector (x, y, z)
+        
+        % Default value of optional parameter 'verbose' is 0
+        if ~exist('verbose', 'var')
+            verbose = 0;
+        end
         
         % Change angles to be relative to the coordinate system
         ang_proj_x = ang_proj_x + angle_rig_projector_x;
@@ -44,8 +55,8 @@ function structured_light()
         
         % Define the projector's view plane
         P1 = [0, 0, 0];
-        P2 = [1*cos(ang_proj_x), 1*sin(ang_proj_x), 1];
-        P3 = [2*cos(ang_proj_x), 2*sin(ang_proj_x), 0];
+        P2 = [cos(ang_proj_x), sin(ang_proj_x), 1];
+        P3 = [cos(ang_proj_x), sin(ang_proj_x), 0];
         normal = cross(P1-P2, P1-P3);
         x = sym('x');
         y = sym('y');
@@ -62,27 +73,38 @@ function structured_light()
               sin(ang_cam_y)+position_camera_projector_z];
         t = sym('t');
         line = P4 + t*(P5-P4);
-        
         % Find the intersection point if any exists
         newfunction = subs(planefunction, P, line);
         t0 = solve(newfunction);
         point_frac = subs(line, t, t0);
         point = [double(point_frac(1)), double(point_frac(2)), double(point_frac(3))];
+        fprintf('ang_proj_x: %f\nang_cam_x: %f\nang_cam_y: %f\n', ang_proj_x, ang_cam_x, ang_cam_y)
+        fprintf('Intersection point: (%f, %f, %f) \n', point(1), point(2), ...
+                point(3))
         
         if (verbose)
-            figure
+            figure(fig_int)
             hold on
-            patch([P1(1), P2(1), P3(1)], ...
+            % Plot the projector
+            plot3(P1(1), P1(2), P1(3), 'rX', 'linewidth', 3)
+            % Plot the camera
+            plot3(P4(1), P4(2), P4(3), 'bX', 'linewidth', 3)
+            % Plot projector plane
+            plane = patch([P1(1), P2(1), P3(1)], ...
                   [P1(2), P2(2), P3(2)], ...
                   [P1(3), P2(3), P3(3)], ...
-                  'red')
+                  'red');
+            set(plane, 'facealpha', .2)
+            % Plot camera line
             plot3([P4(1), P5(1)], ...
                   [P4(2), P5(2)], ...
                   [P4(3), P5(3)], ...
                   '-')
-            plot3(point(1), point(2), point(3), 'k*');
-            title('Intersection of Camera Line and Projector Plane')
-            legend('Projector Plane', 'Camera Line', 'Intersection Point')
+            % Plot intersection point
+            plot3(point(1), point(2), point(3), 'kx', 'linewidth', 2);
+            title('Intersection of Camera Lines and Projector Planes')
+            legend('Projector', 'Camera', 'Projector Pixel Plane', ...
+                'Camera Pixel Line', 'Intersection Point')
             xlabel('x')
             ylabel('y')
             zlabel('z')
@@ -94,6 +116,7 @@ function structured_light()
         % Input: (value to map, from low range, from high range, to low
         % range, to high range)
         % Output: mapped value
+        
         frac = (val-fromLow)/(fromHigh-fromLow);
         newVal = frac*(toHigh-toLow)+toLow;
     end
@@ -103,6 +126,9 @@ function structured_light()
         % pixel position on image)
         % Output: (pixel's x angle relative to camera, pixel's y
         % angle relative to camera)
+        
+        % Flip y axis to make bottom of image 0
+        y = res_camera_y - y;
         angle_x_cam = atan((mid_camera_x-x)/focal_length_camera_x);
         angle_y_cam = atan((y-mid_camera_y)/focal_length_camera_y);
     end
@@ -120,7 +146,7 @@ function structured_light()
         found_x = 0;
         % Map the given 0-255 gray value to the actual gray value range
         % of the photo
-        new_pixel_value = map(double(pixel_value), 7, 120, 10, 90);
+        new_pixel_value = round(map(double(pixel_value), 7, 120, 10, 90));
         
         [~, x_size] = size(pattern);
         for i=1:x_size
@@ -135,6 +161,7 @@ function structured_light()
         end
         
         angle_x_proj = atan((mid_projector_x-x)/focal_length_projector_x);
+        fprintf('gray value: %d\n', new_pixel_value);
         
         if (verbose)
             fprintf('Pixel''s x location: %d \n', x)
@@ -142,80 +169,76 @@ function structured_light()
             patt = figure;
             imshow(pattern)
             figure(patt)
-            title({'Pattern Projected by Projector and Horizontal Position' ...
-            ' of Isolated Pixel'})
+            title({'Pattern Projected by Projector and Horizontal' ...
+                ' Position of Isolated Pixel'})
             hold on
-            plot([x, x], [0, 500], '-r')
+            plot([x, x], [0, 500], '-r', 'linewidth', 2)
         end
     end
 
-    function scan_image()
-%         figure
-        hold on
-        [x_size, y_size] = size(photo);
-%         for i=2300:100:2500
-%             for j=1300:100:2700
-        i = mid_camera_x;
-        j = mid_camera_y;
-        all_pos = [];
-        for z=1:20
-            i = i+100;
-            j = j+100;
-                [i, j]
-                curr_pixel = [i, j];
-                curr_pixel_value = photo(curr_pixel);
-                curr_proj_x_angle = get_pixel_projector_angle(curr_pixel_value);
-                [curr_cam_x_angle, curr_cam_y_angle] = get_pixel_camera_angle(2000, 2000);
-                curr_pixel_pos = get_intersection(curr_proj_x_angle, curr_cam_x_angle, curr_cam_y_angle);
-                all_pos = [all_pos; curr_pixel_pos];
-                hold on
-%             end
-%         end
-        end
-        all_pos
-        plot3(all_pos(1,:), all_pos(2,:), all_pos(3,:), 'r*')
-    end
-
-    function pos = get_pos(pixel_x, pixel_y)
+    function pos = get_3d_pos(pixel_x, pixel_y)
+        % Input: (photo x pixel, photo y pixel)
+        % Output: 3D position (x, y, z)
+        
         curr_pixel_value = photo(pixel_y, pixel_x);
         curr_proj_x_angle = get_pixel_projector_angle(curr_pixel_value);
         [curr_cam_x_angle, curr_cam_y_angle] = get_pixel_camera_angle(pixel_x, pixel_y);
-        pos = get_intersection(curr_proj_x_angle, curr_cam_x_angle, curr_cam_y_angle);
+        pos = get_intersection(curr_proj_x_angle, curr_cam_x_angle, curr_cam_y_angle, 1);
     end
 
     function run()
-        all_pix_num = [1800, 1800;
+        clf
+        
+        % Points on photo to find 3D position of
+        all_pix_num = [1800, 1400;
+                       1800, 1600;
+                       1800, 1800;
+                       1800, 2000;
+                       2000, 1400;
+                       2000, 1600;
                        2000, 1800;
                        2000, 2000;
+                       2200, 1400;
                        2200, 1600
                        2200, 1800;
                        2200, 2000;
+                       2400, 1400;
                        2400, 1600;
                        2400, 1800;
                        2400, 2000];
+
         size_all_pix_num = size(all_pix_num);
 
         all_pixel_pos = zeros(size_all_pix_num(1), 3);
         for i=1:size_all_pix_num(1)
-            all_pixel_pos(i, 1:3) = get_pos(all_pix_num(i, 1), all_pix_num(i, 2));
+            all_pixel_pos(i, 1:3) = get_3d_pos(all_pix_num(i, 1), all_pix_num(i, 2));
         end
         size_all_pixel_pos = size(all_pixel_pos);
-        subplot(1, 2, 1)
+        figure(fig_3d)
+        subplot(2, 1, 1)
         hold on
         for i=1:size_all_pixel_pos(1)
-            plot3(all_pixel_pos(i, 1), all_pixel_pos(i, 2), all_pixel_pos(i, 3), '*')
+            plot3(all_pixel_pos(i, 1), all_pixel_pos(i, 2), ...
+                all_pixel_pos(i, 3), '*', 'linewidth', 2)
         end
+
+        title('3D Point Cloud')
         xlabel('x')
         ylabel('y')
         zlabel('z')
-
-        subplot(1, 2, 2)
+        axis equal
+        
+        subplot(2, 1, 2)
         imshow(photo);    
         hold on
         for i=1:size_all_pix_num(1)
-            plot(all_pix_num(i, 1), all_pix_num(i, 2), '*');
+            plot(all_pix_num(i, 1), all_pix_num(i, 2), '*', 'linewidth', 2)
         end
+        title('Camera''s Point of View')
     end
 
-    get_pixel_projector_angle(100, 1);
+    fig_int = figure;
+    fig_3d = figure;
+    run()
+    
 end
